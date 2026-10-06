@@ -738,6 +738,73 @@ describe("widget-file", () => {
       consoleSpy.mockRestore();
     });
 
+    test("hides the host page's AMD define while the surveys script loads and restores it on load", async () => {
+      getInstanceConfigMock.mockReturnValue(scriptLoadMockConfig as unknown as Config);
+      widget.setIsSurveyRunning(false);
+
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const amdDefine = Object.assign(vi.fn(), { amd: {} });
+      window.define = amdDefine;
+      vi.useFakeTimers();
+
+      const renderPromise = widget.renderWidget({
+        ...mockSurvey,
+        delay: 0,
+      });
+
+      const scriptEl = getAppendedScript();
+
+      // While the UMD bundle executes, `define` must be hidden so the wrapper takes its
+      // browser-global branch instead of registering with the host page's AMD loader.
+      expect(window.define).toBeUndefined();
+
+      (scriptEl.onload as () => void)();
+
+      // The host page's loader is back as soon as the script has run.
+      expect(window.define).toBe(amdDefine);
+
+      // The global never arrives in this scenario; the load times out as before.
+      await vi.advanceTimersByTimeAsync(10001);
+      await renderPromise;
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Failed to load Formbricks Surveys library:",
+        expect.any(Error)
+      );
+
+      vi.useRealTimers();
+      consoleSpy.mockRestore();
+      delete window.define;
+    });
+
+    test("restores the host page's AMD define when the surveys script fails to load", async () => {
+      getInstanceConfigMock.mockReturnValue(scriptLoadMockConfig as unknown as Config);
+      widget.setIsSurveyRunning(false);
+
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const amdDefine = Object.assign(vi.fn(), { amd: {} });
+      window.define = amdDefine;
+
+      const renderPromise = widget.renderWidget({
+        ...mockSurvey,
+        delay: 0,
+      });
+
+      const scriptEl = getAppendedScript();
+
+      expect(window.define).toBeUndefined();
+
+      (scriptEl.onerror as (error: unknown) => void)("Network error");
+
+      expect(window.define).toBe(amdDefine);
+
+      await renderPromise;
+      expect(consoleSpy).toHaveBeenCalledWith("Failed to load Formbricks Surveys library:", "Network error");
+
+      consoleSpy.mockRestore();
+      delete window.define;
+    });
+
     test("resolves after polling when surveys global becomes available and applies stored nonce", async () => {
       getInstanceConfigMock.mockReturnValue(scriptLoadMockConfig as unknown as Config);
       widget.setIsSurveyRunning(false);

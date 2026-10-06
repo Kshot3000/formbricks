@@ -406,7 +406,23 @@ const loadFormbricksSurveysExternally = (): Promise<TFormbricksSurveys> => {
     const script = document.createElement("script");
     script.src = `${config.get().appUrl}/js/surveys.umd.cjs`;
     script.async = true;
+    // The surveys bundle is UMD: on a host page with an AMD loader (a global `define` with
+    // `define.amd`, e.g. RequireJS) its wrapper takes the AMD branch and never assigns
+    // `window.formbricksSurveys`, so the poll below would time out and no survey would render.
+    // Hide `define` while the script executes so the wrapper takes its browser-global branch,
+    // and restore it as soon as the script has run (onload) or failed (onerror).
+    const amdDefine = globalThis.window.define;
+    const hasAmdLoader = typeof amdDefine === "function";
+    if (hasAmdLoader) {
+      globalThis.window.define = undefined;
+    }
+    const restoreAmdDefine = (): void => {
+      if (hasAmdLoader) {
+        globalThis.window.define = amdDefine;
+      }
+    };
     script.onload = () => {
+      restoreAmdDefine();
       waitForSurveysGlobal()
         .then(resolve)
         .catch((error: unknown) => {
@@ -416,6 +432,7 @@ const loadFormbricksSurveysExternally = (): Promise<TFormbricksSurveys> => {
         });
     };
     script.onerror = (error) => {
+      restoreAmdDefine();
       surveysLoadPromise = null;
       console.error("Failed to load Formbricks Surveys library:", error);
       reject(new Error(`Failed to load Formbricks Surveys library`));
